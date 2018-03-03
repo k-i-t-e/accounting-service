@@ -33,16 +33,18 @@ class AccountingController @Inject()(cc: ControllerComponents,
       requestContent.fold(
         badRequestError,
         account => {
-          Future.successful(Ok(Json.toJson(RestResult[Account](Account(None, account.owner, account.balance, Some(new Date()))))))
+          accountingService.saveAccount(account).map(a => Ok(Json.toJson(RestResult(a))))
         })
     }
   }
 
-  def getAccount(id: Long) = Action.async {
-    Future.successful(InternalServerError)
+  def getAccountById(id: Long) = Action.async {
+    _ => {
+      accountingService.loadAccount(id).map(a => Ok(Json.toJson(RestResult(a))))
+    }
   }
 
-  def getAccount(owner: String) = Action.async {
+  def getAccountByOwner(owner: String) = Action.async {
     Future.successful(InternalServerError)
   }
 

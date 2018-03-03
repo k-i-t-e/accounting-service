@@ -14,7 +14,7 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
                                      (implicit ec: ExecutionContext) extends AccountingService {
   override def saveAccount(account: Account): Future[Account] = {
     account.id.map(loadAccount) // when updating, makes sure the account being updated exists
-    accountingRepository.save(account)
+    accountingRepository.save(Account(account.id, account.owner, account.balance, Some(new Date())))
   }
 
   override def loadAccount(id: Long): Future[Account] = accountingRepository.getById(id).map({
