@@ -1,5 +1,6 @@
 import com.google.inject.AbstractModule
 import net.codingwell.scalaguice.ScalaModule
+import repositories.{AccountingRepository, SlickAccountingRepository}
 import services.accounting.{AccountingService, DefaultAccountService}
 
 /**
@@ -16,6 +17,7 @@ class Module extends AbstractModule with ScalaModule {
 
   override def configure() = {
     bind[AccountingService].to[DefaultAccountService]
+    bind[AccountingRepository].to[SlickAccountingRepository]
   }
 
 }

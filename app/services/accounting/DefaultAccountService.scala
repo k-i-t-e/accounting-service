@@ -1,16 +1,26 @@
 package services.accounting
 
+import java.util.Date
 import javax.inject.{Inject, Singleton}
 
 import entities.{Account, Transaction}
+import exceptions.AccountingException
+import repositories.AccountingRepository
 
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
-class DefaultAccountService @Inject()(implicit ec: ExecutionContext) extends AccountingService {
-  override def createAccount(account: Account): Future[Account] = ???
+class DefaultAccountService @Inject()(accountingRepository: AccountingRepository)
+                                     (implicit ec: ExecutionContext) extends AccountingService {
+  override def saveAccount(account: Account): Future[Account] = {
+    account.id.map(loadAccount) // when updating, makes sure the account being updated exists
+    accountingRepository.save(account)
+  }
 
-  override def loadAccount(id: Long): Future[Account] = ???
+  override def loadAccount(id: Long): Future[Account] = accountingRepository.getById(id).map({
+    case Some(a) => a
+    case None => throw new AccountingException("No such account exists")
+  })
 
   override def createTransaction(from: Option[Long], to: Option[Long], amount: Double): Future[Transaction] = {
 
@@ -22,6 +32,8 @@ class DefaultAccountService @Inject()(implicit ec: ExecutionContext) extends Acc
     for {
       fromOpt <- loadIfPresent(from)
       toOpt <- loadIfPresent(to)
-    } yield Transaction(fromOpt, toOpt, amount)
+    } yield Transaction(fromOpt, toOpt, amount, new Date())
   }
+
+  override def loadByOwner(owner: String):Future[Seq[Account]] = accountingRepository.getByOwner(owner)
 }

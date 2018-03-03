@@ -10,8 +10,15 @@ resolvers += "Akka Snapshot Repository" at "http://repo.akka.io/snapshots/"
       
 scalaVersion := "2.12.2"
 
-libraryDependencies ++= Seq( jdbc , ehcache , ws , specs2 % Test , guice ) // Play's initial dependencies
+libraryDependencies ++= Seq( ehcache , ws , specs2 % Test , guice ) // Play's initial dependencies
 libraryDependencies += "net.codingwell" %% "scala-guice" % "4.1.0" // scala syntax for Guice
+
+// Database
+libraryDependencies ++= Seq(
+  "com.h2database" % "h2" % "1.4.196",
+  "com.typesafe.play" %% "play-slick" % "3.0.3",
+  "com.typesafe.play" %% "play-slick-evolutions" % "3.0.3")
+
 
 unmanagedResourceDirectories in Test <+=  baseDirectory ( _ /"target/web/public/test" )  
 

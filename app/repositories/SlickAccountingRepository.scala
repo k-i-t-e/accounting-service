@@ -1,6 +1,9 @@
 package repositories
+import javax.inject.Singleton
+
 import entities.Account
 
+@Singleton
 class SlickAccountingRepository extends AccountingRepository {
   override def save(account: Account) = ???
 
