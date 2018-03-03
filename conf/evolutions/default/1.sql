@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS account (
   id BIGINT DEFAULT nextval('s_account') PRIMARY KEY,
   owner VARCHAR(512) NOT NULL,
   balance DOUBLE NOT NULL,
-  created_date TIMESTAMP WITH TIME ZONE NOT NULL
+  created_date TIMESTAMP NOT NULL
 );
 
 CREATE INDEX account_owner_idx ON account(owner);
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS operation (
   id BIGINT DEFAULT nextval('s_operation') PRIMARY KEY,
   from_id BIGINT REFERENCES account(id),
   to_id BIGINT REFERENCES account(id),
-  created_date TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_date TIMESTAMP NOT NULL,
   amount DOUBLE NOT NULL
 );
 
