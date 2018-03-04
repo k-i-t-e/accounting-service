@@ -1,6 +1,6 @@
 package repositories
 
-import entities.Account
+import entities.{Account, Transaction}
 
 import scala.concurrent.Future
 
@@ -12,4 +12,6 @@ trait AccountingRepository {
   def getById(accountId: Long): Future[Option[Account]]
 
   def getByOwner(owner: String): Future[Seq[Account]]
+
+  def createTransaction(transaction: Transaction): Future[Transaction]
 }

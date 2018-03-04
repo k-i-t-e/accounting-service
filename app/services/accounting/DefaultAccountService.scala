@@ -29,10 +29,12 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
         case None => Future.successful(None)
       }
 
-    for {
+    val transaction = for {
       fromOpt <- loadIfPresent(from)
       toOpt <- loadIfPresent(to)
-    } yield Transaction(fromOpt, toOpt, amount, new Date())
+    } yield Transaction(None, fromOpt, toOpt, amount, new Date())
+
+    transaction.flatMap(accountingRepository.createTransaction)
   }
 
   override def loadByOwner(owner: String):Future[Seq[Account]] = accountingRepository.getByOwner(owner)

@@ -4,8 +4,9 @@ import java.util.Date
 import javax.inject.Inject
 
 import controllers.vo.{RestResult, TransactionVO}
-import entities.Account
+import entities.{Account, Transaction}
 import play.api.libs.json._
+import play.api.libs.functional.syntax._
 import play.api.mvc.{AbstractController, ControllerComponents}
 import services.accounting.AccountingService
 
@@ -15,23 +16,20 @@ class AccountingController @Inject()(cc: ControllerComponents,
                                      accountingService: AccountingService)(implicit ec: ExecutionContext) extends AbstractController(cc) {
   implicit val accountWrites = Json.writes[Account]
   implicit val accountResultWrites = Json.writes[RestResult[Account]]
+  implicit val accountSeqResultWrites = Json.writes[RestResult[Seq[Account]]]
+  implicit val transactionWrites = Json.writes[Transaction]
+  implicit val transactionResultWrites = Json.writes[RestResult[Transaction]]
 
   implicit val accountReads: Reads[Account] = Json.reads[Account]
   implicit val transactionVOReads: Reads[TransactionVO] = Json.reads[TransactionVO]
 
-  /**
-    * Validates incoming data. returns BadRequest if something is wrong
-    */
-  //private def validateAccount[A : Reads] = parse.json.validate[A](_.validate.asEither.left.map(e => BadRequest(JsError.toJson(e))))
-  //private def validateTransaction = parse.json.validate[TransactionVO](v => v.validate.asEither.left.map(e => BadRequest(JsError.toJson(e))))
-
-  private def badRequestError(error: Seq[(JsPath, scala.Seq[JsonValidationError])]) = Future.successful(BadRequest(JsError.toJson(error)))
+  private def throwBadRequestError(error: Seq[(JsPath, scala.Seq[JsonValidationError])]) = Future.successful(BadRequest(JsError.toJson(error)))
 
   def createAccount = Action(parse.json).async {
     request => {
       val requestContent = request.body.validate[Account]
       requestContent.fold(
-        badRequestError,
+        throwBadRequestError,
         account => {
           accountingService.saveAccount(account).map(a => Ok(Json.toJson(RestResult(a))))
         })
@@ -45,15 +43,18 @@ class AccountingController @Inject()(cc: ControllerComponents,
   }
 
   def getAccountByOwner(owner: String) = Action.async {
-    Future.successful(InternalServerError)
+    _ => {
+      accountingService.loadByOwner(owner).map(a => Ok(Json.toJson(RestResult(a))))
+    }
   }
 
   def createTransaction = Action(parse.json).async {
     request => {
       val requestContent = request.body.validate[TransactionVO]
       requestContent.fold(
-        badRequestError,
-        vo => Future.successful(Ok("ololo"))
+        throwBadRequestError,
+        vo => accountingService.createTransaction(vo.from, vo.to, vo.amount)
+          .map(t => Ok(Json.toJson(RestResult(t))))
       )
     }
   }
