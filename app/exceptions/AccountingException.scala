@@ -1,5 +1,4 @@
 package exceptions
 
-class AccountingException(message: String) extends RuntimeException {
-
+class AccountingException(val message: String) extends RuntimeException {
 }

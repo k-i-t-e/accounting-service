@@ -63,22 +63,17 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
       transaction.amount
     )
 
-    val fromUpdateAction = transaction.from.map(from => {
-      val q = for {
-        acc <- accounts if acc.id === from.id
-      } yield acc.balance
-      q.update(from.balance - transaction.amount)
-    })
-
-    val toUpdateAction = transaction.to.map(to => {
+    def accountUpdate(account: Account) = {
       //accounts.filter(_.id === from.id).map(_.balance).update(from.balance + transaction.amount)
       val q = for {
-        acc <- accounts if acc.id === to.id
+        acc <- accounts if acc.id === account.id
       } yield acc.balance
-      q.update(to.balance + transaction.amount)
-    })
+      q.update(account.balance)
+    }
 
-    val updateActions = Seq(fromUpdateAction, toUpdateAction).filter(_.isDefined).map(_.get)
+    val updateActions = Seq(transaction.from.map(accountUpdate), transaction.to.map(accountUpdate))
+      .filter(_.isDefined)
+      .map(_.get)
 
     val action = {
       for {
