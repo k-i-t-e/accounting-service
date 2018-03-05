@@ -58,4 +58,10 @@ class AccountingController @Inject()(cc: ControllerComponents,
       )
     }
   }
+
+  def getTransaction(id: Long) = Action.async {
+    _ => {
+      accountingService.loadTransaction(id).map(t => Ok(Json.toJson(RestResult(t))))
+    }
+  }
 }

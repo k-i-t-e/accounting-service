@@ -11,6 +11,7 @@ GET /account/:id    controllers.AccountingController.getAccountById(id: Long)
 GET /account    controllers.AccountingController.getAccountByOwner(owner: String)
 
 POST /transaction controllers.AccountingController.createTransaction
+GET /transaction/:id controllers.AccountingController.getTransaction(id: Long)
 
 # Map static resources from the /public folder to the /assets URL path
 GET     /assets/*file               controllers.Assets.versioned(path="/public", file: Asset)

@@ -14,4 +14,6 @@ trait AccountingRepository {
   def getByOwner(owner: String): Future[Seq[Account]]
 
   def createTransaction(transaction: Transaction): Future[Transaction]
+
+  def loadTransaction(transactionId: Long): Future[Option[Transaction]]
 }

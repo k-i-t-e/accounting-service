@@ -23,17 +23,22 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     override def * = (id.?, owner, balance, createdDate.?) <> ((Account.applyFromDb _).tupled, Account.unapplyToDb)
   }
 
-  private class OperationTable(tag: Tag) extends Table[(Option[Long], Option[Long], Option[Long], Timestamp, Double)](tag, "operation") {
-    def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
-    def from = column[Long]("from_id")
-    def to = column[Long]("to_id")
-    def createdDate = column[Timestamp]("created_date")
-    def amount = column[Double]("amount")
+  private val accounts = TableQuery[AccountTable]
 
-    override def * = (id.?, from.?, to.?, createdDate, amount)
+  type OperationRecord = (Option[Long], Option[Long], Option[Long], Double, Timestamp)
+  private class OperationTable(tag: Tag) extends Table[OperationRecord](tag, "operation") {
+    def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
+    def fromId = column[Long]("from_id")
+    def toId = column[Long]("to_id")
+    def amount = column[Double]("amount")
+    def createdDate = column[Timestamp]("created_date")
+
+    def fromFk = foreignKey("from_id", fromId, accounts)(_.id)
+    def toFk = foreignKey("to_id", toId, accounts)(_.id)
+
+    override def * = (id.?, fromId.?, toId.?, amount, createdDate)
   }
 
-  private val accounts = TableQuery[AccountTable]
   private val operations = TableQuery[OperationTable]
 
   override def save(account: Account): Future[Account] = { // TODO: add update
@@ -55,14 +60,6 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     db.run(accounts.filter(_.owner === owner).result)
 
   override def createTransaction(transaction: Transaction): Future[Transaction] = {
-    val params = (
-      None,
-      transaction.from.flatMap(_.id),
-      transaction.to.flatMap(_.id),
-      new Timestamp(transaction.date.getTime),
-      transaction.amount
-    )
-
     def accountUpdate(account: Account) = {
       //accounts.filter(_.id === from.id).map(_.balance).update(from.balance + transaction.amount)
       val q = for {
@@ -71,6 +68,15 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
       q.update(account.balance)
     }
 
+    val params = (
+      None,
+      transaction.from.flatMap(_.id),
+      transaction.to.flatMap(_.id),
+      transaction.amount,
+      new Timestamp(transaction.date.getTime)
+    )
+
+    // Define DB actions to update account balances, to be executed after create transaction query
     val updateActions = Seq(transaction.from.map(accountUpdate), transaction.to.map(accountUpdate))
       .filter(_.isDefined)
       .map(_.get)
@@ -85,11 +91,17 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     db.run(action)
   }
 
-  /*def loadTransaction(transactionId: Long) = {
-    val action = for {
-      operation <- operations.filter(_.id === transactionId)
-      from <- accounts if operation.from === from.id
-      to <- accounts if operation.to === to.id
-    } yield Transaction(from, to, operation.amount, operation.createdDate)
-  }*/
+  override def loadTransaction(transactionId: Long): Future[Option[Transaction]] = {
+    val transactionQuery = operations.filter(_.id === transactionId)
+    val fromQuery = transactionQuery.flatMap(_.fromFk)
+    val toQuery = transactionQuery.flatMap(_.toFk)
+    val actions = transactionQuery.result.headOption zip (fromQuery.result.headOption zip toQuery.result.headOption)
+
+    db.run(actions).map(r => {
+      r._1.map(p => {
+        val (id, _, _, amount, date) = p
+        Transaction(id, r._2._1, r._2._2, amount, date)
+      })
+    })
+  }
 }

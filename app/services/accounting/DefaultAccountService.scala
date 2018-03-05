@@ -50,4 +50,9 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
   }
 
   override def loadByOwner(owner: String):Future[Seq[Account]] = accountingRepository.getByOwner(owner)
+
+  override def loadTransaction(id: Long): Future[Transaction] = accountingRepository.loadTransaction(id).map({
+    case Some(t) => t
+    case None => throw new AccountingException("No such transaction exists")
+  })
 }
