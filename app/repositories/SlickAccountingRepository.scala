@@ -43,12 +43,21 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
 
   private val operations = TableQuery[OperationTable]
 
-  override def saveAccount(account: Account): Future[Account] = { // TODO: add update
+  override def createAccount(account: Account): Future[Account] = {
     val action = (for {
       newId <- accounts.returning(accounts.map(_.id)) += account
     } yield Account(Some(newId), account.owner, account.balance, account.createdDate)).transactionally
 
     db.run(action)
+  }
+
+  override def updateAccount(account: Account): Future[Account] = {
+    db.run(
+      accounts
+        .filter(_.id === account.id)
+        .map(_.owner) // allow update of only "owner" field
+        .update(account.owner)
+    ).map(_ => account)
   }
 
   override def deleteAccount(accountId: Long): Future[_] = db.run(accounts.filter(_.id === accountId).delete.transactionally)

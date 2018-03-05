@@ -7,6 +7,7 @@
 GET     /                           controllers.HomeController.index
 
 POST /account   controllers.AccountingController.createAccount
+PUT /account    controllers.AccountingController.updateAccount
 GET /account/:id    controllers.AccountingController.getAccountById(id: Long)
 GET /account    controllers.AccountingController.getAccountByOwner(owner: String)
 GET /account/:id/transactions controllers.AccountingController.getTransactionByAccountId(id: Long)

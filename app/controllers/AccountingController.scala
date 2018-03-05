@@ -1,12 +1,10 @@
 package controllers
 
-import java.util.Date
 import javax.inject.Inject
 
 import controllers.vo.{RestResult, TransactionVO}
 import entities.{Account, Transaction}
 import play.api.libs.json._
-import play.api.libs.functional.syntax._
 import play.api.mvc.{AbstractController, ControllerComponents}
 import services.accounting.AccountingService
 
@@ -30,10 +28,21 @@ class AccountingController @Inject()(cc: ControllerComponents,
     request => {
       val requestContent = request.body.validate[Account]
       requestContent.fold(
-        throwBadRequestError,
+        error => throwBadRequestError(error),
         account => {
-          accountingService.saveAccount(account).map(a => Ok(Json.toJson(RestResult(a))))
+          accountingService.createAccount(account).map(a => Ok(Json.toJson(RestResult(a))))
         })
+    }
+  }
+
+  def updateAccount = Action(parse.json).async {
+    request => {
+      request.body.validate[Account].fold(
+        error => throwBadRequestError(error),
+        account => {
+          accountingService.updateAccount(account).map(a => Ok(Json.toJson(RestResult(a))))
+        }
+      )
     }
   }
 
@@ -53,7 +62,7 @@ class AccountingController @Inject()(cc: ControllerComponents,
     request => {
       val requestContent = request.body.validate[TransactionVO]
       requestContent.fold(
-        throwBadRequestError,
+        error => throwBadRequestError(error),
         vo => accountingService.createTransaction(vo.from, vo.to, vo.amount)
           .map(t => Ok(Json.toJson(RestResult(t))))
       )

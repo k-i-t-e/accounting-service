@@ -12,14 +12,23 @@ import scala.concurrent.{ExecutionContext, Future}
 @Singleton
 class DefaultAccountService @Inject()(accountingRepository: AccountingRepository)
                                      (implicit ec: ExecutionContext) extends AccountingService {
-  override def saveAccount(account: Account): Future[Account] = {
-    account.id.map(loadAccount) // when updating, makes sure the account being updated exists
-    accountingRepository.saveAccount(Account(account.id, account.owner, account.balance, Some(new Date())))
+  override def createAccount(account: Account): Future[Account] = {
+    accountingRepository.createAccount(Account(account.id, account.owner, account.balance, Some(new Date())))
+  }
+
+  override def updateAccount(account: Account): Future[Account] = {
+    account.id match {
+      case Some(id) => for {
+          oldAccount <- loadAccount(id) // when updating, makes sure the account being updated exists
+          updated <- accountingRepository.updateAccount(oldAccount.copy(owner = account.owner))
+        } yield updated
+      case None => throw AccountingException("No account ID specified")
+    }
   }
 
   override def loadAccount(id: Long): Future[Account] = accountingRepository.getAccountById(id).map({
     case Some(a) => a
-    case None => throw new AccountingException("No such account exists")
+    case None => throw AccountingException("No such account exists")
   })
 
   override def createTransaction(from: Option[Long], to: Option[Long], amount: Double): Future[Transaction] = {
@@ -43,7 +52,7 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
 
   private def processTransaction(account: Account, amount: Double): Account = {
     if (amount < 0 && account.balance < -amount) {
-      throw new AccountingException("Account balance is not enough")
+      throw AccountingException("Account balance is not enough")
     }
 
     account.copy(balance = account.balance + amount)
