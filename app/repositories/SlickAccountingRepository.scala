@@ -25,18 +25,20 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
 
   private val accounts = TableQuery[AccountTable]
 
-  type OperationRecord = (Option[Long], Option[Long], Option[Long], Double, Timestamp)
+  type OperationRecord = (Option[Long], Option[Long], Option[Long], Double, Timestamp, Option[Double], Option[Double])
   private class OperationTable(tag: Tag) extends Table[OperationRecord](tag, "operation") {
     def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
     def fromId = column[Long]("from_id")
     def toId = column[Long]("to_id")
     def amount = column[Double]("amount")
     def createdDate = column[Timestamp]("created_date")
+    def fromBalance = column[Double]("from_balance")
+    def toBalance = column[Double]("to_balance")
 
     def fromFk = foreignKey("from_id", fromId, accounts)(_.id)
     def toFk = foreignKey("to_id", toId, accounts)(_.id)
 
-    override def * = (id.?, fromId.?, toId.?, amount, createdDate)
+    override def * = (id.?, fromId.?, toId.?, amount, createdDate, fromBalance.?, toBalance.?)
   }
 
   private val operations = TableQuery[OperationTable]
@@ -71,7 +73,9 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
       transaction.from.flatMap(_.id),
       transaction.to.flatMap(_.id),
       transaction.amount,
-      new Timestamp(transaction.date.getTime)
+      new Timestamp(transaction.date.getTime),
+      transaction.from.map(_.balance),
+      transaction.to.map(_.balance)
     )
 
     // Define DB actions to update account balances, to be executed after create transaction query
@@ -97,10 +101,19 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
 
     db.run(actions).map(r => {
       r._1.map(p => {
-        val (id, _, _, amount, date) = p
-        Transaction(id, r._2._1, r._2._2, amount, date)
+        val (id, _, _, amount, date, fromBalance, toBalance) = p
+        val from = r._2._1
+        val to = r._2._2
+        Transaction(id, from.map(restoreBalanceHistory(_, fromBalance)), to.map(restoreBalanceHistory(_, toBalance)), amount, date)
       })
     })
+  }
+
+  private def restoreBalanceHistory(account: Account, historyBalance: Option[Double]) = {
+    historyBalance match {
+      case Some(b) => account.copy(balance = b)
+      case None => account
+    }
   }
 
   override def getTransactionsByAccountId(accountId: Long): Future[Seq[Transaction]] = {
@@ -114,6 +127,8 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
       operation.id,
       operation.amount,
       operation.createdDate,
+      operation.fromBalance.?,
+      operation.toBalance.?,
 
       from,
       to
@@ -121,8 +136,12 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
 
     db.run(joinAction.result).map(
       _.map(r => {
-        val (id, amount, date, from, to) = r
-        Transaction(Some(id), from, to, amount, date)
+        val (id, amount, date, fromBalance, toBalance, from, to) = r
+        Transaction(Some(id),
+                    from.map(restoreBalanceHistory(_, fromBalance)),
+                    to.map(restoreBalanceHistory(_, toBalance)),
+                    amount,
+                    date)
       })
     )
   }
