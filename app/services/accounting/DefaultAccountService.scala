@@ -14,10 +14,10 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
                                      (implicit ec: ExecutionContext) extends AccountingService {
   override def saveAccount(account: Account): Future[Account] = {
     account.id.map(loadAccount) // when updating, makes sure the account being updated exists
-    accountingRepository.save(Account(account.id, account.owner, account.balance, Some(new Date())))
+    accountingRepository.saveAccount(Account(account.id, account.owner, account.balance, Some(new Date())))
   }
 
-  override def loadAccount(id: Long): Future[Account] = accountingRepository.getById(id).map({
+  override def loadAccount(id: Long): Future[Account] = accountingRepository.getAccountById(id).map({
     case Some(a) => a
     case None => throw new AccountingException("No such account exists")
   })
@@ -49,10 +49,13 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
     account.copy(balance = account.balance + amount)
   }
 
-  override def loadByOwner(owner: String):Future[Seq[Account]] = accountingRepository.getByOwner(owner)
+  override def loadByOwner(owner: String):Future[Seq[Account]] = accountingRepository.getAccountByOwner(owner)
 
-  override def loadTransaction(id: Long): Future[Transaction] = accountingRepository.loadTransaction(id).map({
+  override def loadTransaction(id: Long): Future[Transaction] = accountingRepository.getTransaction(id).map({
     case Some(t) => t
     case None => throw new AccountingException("No such transaction exists")
   })
+
+  override def getTransactionsByAccountId(accountId: Long): Future[Seq[Transaction]] =
+    accountingRepository.getTransactionsByAccountId(accountId)
 }

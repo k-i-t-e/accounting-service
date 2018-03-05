@@ -19,6 +19,7 @@ class AccountingController @Inject()(cc: ControllerComponents,
   implicit val accountSeqResultWrites = Json.writes[RestResult[Seq[Account]]]
   implicit val transactionWrites = Json.writes[Transaction]
   implicit val transactionResultWrites = Json.writes[RestResult[Transaction]]
+  implicit val transactionSeqResultWrites = Json.writes[RestResult[Seq[Transaction]]]
 
   implicit val accountReads: Reads[Account] = Json.reads[Account]
   implicit val transactionVOReads: Reads[TransactionVO] = Json.reads[TransactionVO]
@@ -62,6 +63,12 @@ class AccountingController @Inject()(cc: ControllerComponents,
   def getTransaction(id: Long) = Action.async {
     _ => {
       accountingService.loadTransaction(id).map(t => Ok(Json.toJson(RestResult(t))))
+    }
+  }
+
+  def getTransactionByAccountId(accountId: Long) = Action.async {
+    _ => {
+      accountingService.getTransactionsByAccountId(accountId).map(t => Ok(Json.toJson(RestResult(t))))
     }
   }
 }

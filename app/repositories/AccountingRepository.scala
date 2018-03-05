@@ -5,15 +5,17 @@ import entities.{Account, Transaction}
 import scala.concurrent.Future
 
 trait AccountingRepository {
-  def save(account: Account): Future[Account]
+  def saveAccount(account: Account): Future[Account]
 
-  def delete(accountId: Long): Future[_]
+  def deleteAccount(accountId: Long): Future[_]
 
-  def getById(accountId: Long): Future[Option[Account]]
+  def getAccountById(accountId: Long): Future[Option[Account]]
 
-  def getByOwner(owner: String): Future[Seq[Account]]
+  def getAccountByOwner(owner: String): Future[Seq[Account]]
 
   def createTransaction(transaction: Transaction): Future[Transaction]
 
-  def loadTransaction(transactionId: Long): Future[Option[Transaction]]
+  def getTransaction(transactionId: Long): Future[Option[Transaction]]
+
+  def getTransactionsByAccountId(accountId: Long): Future[Seq[Transaction]]
 }

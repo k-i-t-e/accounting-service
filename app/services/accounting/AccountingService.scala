@@ -17,4 +17,6 @@ trait AccountingService {
   def createTransaction(from: Option[Long], to: Option[Long], amount: Double): Future[Transaction]
 
   def loadTransaction(id: Long): Future[Transaction]
+
+  def getTransactionsByAccountId(accountId: Long): Future[Seq[Transaction]]
 }

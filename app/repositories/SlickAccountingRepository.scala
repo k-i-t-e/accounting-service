@@ -41,7 +41,7 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
 
   private val operations = TableQuery[OperationTable]
 
-  override def save(account: Account): Future[Account] = { // TODO: add update
+  override def saveAccount(account: Account): Future[Account] = { // TODO: add update
     val action = (for {
       newId <- accounts.returning(accounts.map(_.id)) += account
     } yield Account(Some(newId), account.owner, account.balance, account.createdDate)).transactionally
@@ -49,23 +49,21 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     db.run(action)
   }
 
-  override def delete(accountId: Long): Future[_] = db.run(accounts.filter(_.id === accountId).delete.transactionally)
+  override def deleteAccount(accountId: Long): Future[_] = db.run(accounts.filter(_.id === accountId).delete.transactionally)
 
-
-  override def getById(accountId: Long): Future[Option[Account]] =
+  override def getAccountById(accountId: Long): Future[Option[Account]] =
     db.run(accounts.filter(_.id === accountId).result.headOption)
 
 
-  override def getByOwner(owner: String): Future[Seq[Account]] =
+  override def getAccountByOwner(owner: String): Future[Seq[Account]] =
     db.run(accounts.filter(_.owner === owner).result)
 
   override def createTransaction(transaction: Transaction): Future[Transaction] = {
     def accountUpdate(account: Account) = {
-      //accounts.filter(_.id === from.id).map(_.balance).update(from.balance + transaction.amount)
-      val q = for {
-        acc <- accounts if acc.id === account.id
-      } yield acc.balance
-      q.update(account.balance)
+      accounts
+        .filter(_.id === account.id)
+        .map(_.balance)
+        .update(account.balance)
     }
 
     val params = (
@@ -91,7 +89,7 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     db.run(action)
   }
 
-  override def loadTransaction(transactionId: Long): Future[Option[Transaction]] = {
+  override def getTransaction(transactionId: Long): Future[Option[Transaction]] = {
     val transactionQuery = operations.filter(_.id === transactionId)
     val fromQuery = transactionQuery.flatMap(_.fromFk)
     val toQuery = transactionQuery.flatMap(_.toFk)
@@ -103,5 +101,29 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
         Transaction(id, r._2._1, r._2._2, amount, date)
       })
     })
+  }
+
+  override def getTransactionsByAccountId(accountId: Long): Future[Seq[Transaction]] = {
+    val joinAction = for {
+      ((operation, from), to) <- operations
+        .filter(op => op.fromId === accountId || op.toId === accountId)
+        .joinLeft(accounts).on(_.fromId === _.id)
+        .joinLeft(accounts).on(_._1.toId === _.id)
+
+    } yield (
+      operation.id,
+      operation.amount,
+      operation.createdDate,
+
+      from,
+      to
+    )
+
+    db.run(joinAction.result).map(
+      _.map(r => {
+        val (id, amount, date, from, to) = r
+        Transaction(Some(id), from, to, amount, date)
+      })
+    )
   }
 }
