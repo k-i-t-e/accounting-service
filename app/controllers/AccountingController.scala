@@ -10,19 +10,33 @@ import services.accounting.AccountingService
 
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+  * A REST Controller implementation, that handles requests for Account management. Requests are being handled in async
+  * way. Renders results as JSON objects.
+  *
+  * @param cc inject Play's ControllerComponents
+  * @param accountingService inject an instance of AccountingService to process requests
+  * @param ec inject Play's Default Execution context to tun all Futures on it
+  */
 class AccountingController @Inject()(cc: ControllerComponents,
                                      accountingService: AccountingService)(implicit ec: ExecutionContext) extends AbstractController(cc) {
-  implicit val accountWrites = Json.writes[Account]
-  implicit val accountResultWrites = Json.writes[RestResult[Account]]
-  implicit val accountSeqResultWrites = Json.writes[RestResult[Seq[Account]]]
-  implicit val transactionWrites = Json.writes[Transaction]
-  implicit val transactionResultWrites = Json.writes[RestResult[Transaction]]
-  implicit val transactionSeqResultWrites = Json.writes[RestResult[Seq[Transaction]]]
+  private implicit val booleanResultWrites: Writes[RestResult[Boolean]] = Json.writes[RestResult[Boolean]]
+  private implicit val accountWrites: Writes[Account] = Json.writes[Account]
+  private implicit val accountResultWrites: Writes[RestResult[Account]] = Json.writes[RestResult[Account]]
+  private implicit val accountSeqResultWrites: Writes[RestResult[Seq[Account]]] = Json.writes[RestResult[Seq[Account]]]
+  private implicit val transactionWrites: Writes[Transaction] = Json.writes[Transaction]
+  private implicit val transactionResultWrites: Writes[RestResult[Transaction]] = Json.writes[RestResult[Transaction]]
+  private implicit val transactionSeqResultWrites: Writes[RestResult[Seq[Transaction]]] =
+    Json.writes[RestResult[Seq[Transaction]]]
 
-  implicit val accountReads: Reads[Account] = Json.reads[Account]
-  implicit val transactionVOReads: Reads[TransactionVO] = Json.reads[TransactionVO]
+  private implicit val accountReads: Reads[Account] = Json.reads[Account]
+  private implicit val transactionVOReads: Reads[TransactionVO] = Json.reads[TransactionVO]
 
-  private def throwBadRequestError(error: Seq[(JsPath, scala.Seq[JsonValidationError])]) = Future.successful(BadRequest(JsError.toJson(error)))
+  /**
+    * A helper method, that handles JSON parsing errors and return them with a BadRequest status code
+    */
+  private def throwBadRequestError(error: Seq[(JsPath, scala.Seq[JsonValidationError])]) = Future.successful(
+    BadRequest(JsError.toJson(error)))
 
   def createAccount = Action(parse.json).async {
     request => {
@@ -47,15 +61,11 @@ class AccountingController @Inject()(cc: ControllerComponents,
   }
 
   def getAccountById(id: Long) = Action.async {
-    _ => {
-      accountingService.loadAccount(id).map(a => Ok(Json.toJson(RestResult(a))))
-    }
+    _ => accountingService.loadAccount(id).map(a => Ok(Json.toJson(RestResult(a))))
   }
 
   def getAccountByOwner(owner: String) = Action.async {
-    _ => {
-      accountingService.loadByOwner(owner).map(a => Ok(Json.toJson(RestResult(a))))
-    }
+    _ => accountingService.loadByOwner(owner).map(a => Ok(Json.toJson(RestResult(a))))
   }
 
   def createTransaction = Action(parse.json).async {
@@ -70,14 +80,10 @@ class AccountingController @Inject()(cc: ControllerComponents,
   }
 
   def getTransaction(id: Long) = Action.async {
-    _ => {
-      accountingService.loadTransaction(id).map(t => Ok(Json.toJson(RestResult(t))))
-    }
+    _ => accountingService.loadTransaction(id).map(t => Ok(Json.toJson(RestResult(t))))
   }
 
   def getTransactionByAccountId(accountId: Long) = Action.async {
-    _ => {
-      accountingService.getTransactionsByAccountId(accountId).map(t => Ok(Json.toJson(RestResult(t))))
-    }
+    _ => accountingService.getTransactionsByAccountId(accountId).map(t => Ok(Json.toJson(RestResult(t))))
   }
 }

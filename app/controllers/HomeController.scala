@@ -5,19 +5,16 @@ import play.api.mvc._
 
 /**
  * This controller creates an `Action` to handle HTTP requests to the
- * application's home page.
+ * application's welcome page.
  */
 @Singleton
 class HomeController @Inject()(cc: ControllerComponents) extends AbstractController(cc) {
 
   /**
-   * Create an Action to render an HTML page with a welcome message.
-   * The configuration in the `routes` file means that this method
-   * will be called when the application receives a `GET` request with
-   * a path of `/`.
+   * Returns a welcome message to signal that service is running
    */
   def index = Action {
-    Ok("Your new application is ready.")
+    Ok("Accounting Service is ready.")
   }
 
 }

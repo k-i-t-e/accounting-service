@@ -1,5 +1,6 @@
 package repositories
 import java.sql.Timestamp
+import java.util.Date
 import javax.inject.{Inject, Singleton}
 
 import entities.{Account, Transaction}
@@ -8,23 +9,39 @@ import slick.jdbc.H2Profile
 
 import scala.concurrent.{ExecutionContext, Future}
 
+/**
+  * An implementation of AccountingRepository, that uses Slick for database interaction.
+  * @param dbConfigProvider inject a DatabaseConfigProvider for Slick
+  * @param ec inject an ExecutionContext for operations with Futures. For database operations, a Slick's
+  *           ExecutionContext is used, but for other actions, we'll use Play's default context.
+  */
 @Singleton
 class SlickAccountingRepository @Inject()(protected val dbConfigProvider: DatabaseConfigProvider)
                                          (implicit ec: ExecutionContext)
   extends AccountingRepository with HasDatabaseConfigProvider[H2Profile] {
   import profile.api._
 
+  /**
+    * A mapping for 'account' table, holding data for Accounts. It gets automatically mapped to Account entity
+    * @param tag
+    */
   private class AccountTable(tag: Tag) extends Table[Account](tag, "account") {
     def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
     def owner = column[String]("owner")
     def balance = column[Double]("balance")
     def createdDate = column[Timestamp]("created_date")
 
-    override def * = (id.?, owner, balance, createdDate.?) <> ((Account.applyFromDb _).tupled, Account.unapplyToDb)
+    override def * = (id.?, owner, balance, createdDate.?) <> ((applyFromDb _).tupled, unapplyAccountToDb)
   }
 
   private val accounts = TableQuery[AccountTable]
 
+  /**
+    * A mapping for 'operations' table, that holds data on monetary transactions.
+    * Unfortunately, here we cannot perform an automatic mapping, because Transaction entity contains nested Account
+    * entities, which is impossible to get without joins or additional queries.
+    * We also introduce a type alias for an operation table tuple
+    */
   type OperationRecord = (Option[Long], Option[Long], Option[Long], Double, Timestamp, Option[Double], Option[Double])
   private class OperationTable(tag: Tag) extends Table[OperationRecord](tag, "operation") {
     def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
@@ -32,8 +49,10 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     def toId = column[Long]("to_id")
     def amount = column[Double]("amount")
     def createdDate = column[Timestamp]("created_date")
-    def fromBalance = column[Double]("from_balance")
-    def toBalance = column[Double]("to_balance")
+    def fromBalance = column[Double]("from_balance")  // Contains balance of source account after transaction commit
+    def toBalance = column[Double]("to_balance")      // Contains balance of destination account after transaction
+                                                      // commit. These fields are used to restore history values of
+                                                      // account's balances
 
     def fromFk = foreignKey("from_id", fromId, accounts)(_.id)
     def toFk = foreignKey("to_id", toId, accounts)(_.id)
@@ -59,8 +78,6 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
         .update(account.owner)
     ).map(_ => account)
   }
-
-  override def deleteAccount(accountId: Long): Future[_] = db.run(accounts.filter(_.id === accountId).delete.transactionally)
 
   override def getAccountById(accountId: Long): Future[Option[Account]] =
     db.run(accounts.filter(_.id === accountId).result.headOption)
@@ -92,11 +109,12 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
       .filter(_.isDefined)
       .map(_.get)
 
+    // Persist a transaction and update participating accounts transactionally, in a single DB action
     val action = {
       for {
         newId <- operations.returning(operations.map(_.id)) += params
         _ <- DBIO.seq(updateActions:_*)
-      } yield Transaction(Some(newId), transaction.from, transaction.to, transaction.amount, transaction.date)
+      } yield transaction.copy(id = Some(newId))
     }.transactionally
 
     db.run(action)
@@ -106,7 +124,8 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     val transactionQuery = operations.filter(_.id === transactionId)
     val fromQuery = transactionQuery.flatMap(_.fromFk)
     val toQuery = transactionQuery.flatMap(_.toFk)
-    val actions = transactionQuery.result.headOption zip (fromQuery.result.headOption zip toQuery.result.headOption)
+    val actions = transactionQuery.result.headOption zip (
+      fromQuery.result.headOption zip toQuery.result.headOption) // join on foreign keys
 
     db.run(actions).map(r => {
       r._1.map(p => {
@@ -154,4 +173,24 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
       })
     )
   }
+
+  /**
+    * A helper method to convert an Account entity to a database table tuple
+    */
+  private def unapplyAccountToDb(arg: Account): Option[(Option[Long], String, Double, Option[Timestamp])] =
+    Some((arg.id, arg.owner, arg.balance, arg.createdDate match {
+      case Some(date) => Some(new Timestamp(date.getTime))
+      case None => None
+    }))
+
+  /**
+    * A helper method to construct an Account from values from database
+    */
+  def applyFromDb(id: Option[Long],
+                  owner: String,
+                  balance: Double,
+                  createdDate: Option[Timestamp]): Account = new Account(id, owner, balance, createdDate match {
+    case Some(timestamp) => Some(new Date(timestamp.getTime))
+    case None => None
+  })
 }

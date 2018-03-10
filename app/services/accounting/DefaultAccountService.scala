@@ -13,7 +13,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class DefaultAccountService @Inject()(accountingRepository: AccountingRepository)
                                      (implicit ec: ExecutionContext) extends AccountingService {
   override def createAccount(account: Account): Future[Account] = {
-    accountingRepository.createAccount(Account(account.id, account.owner, account.balance, Some(new Date())))
+    accountingRepository.createAccount(account.copy(createdDate = Some(new Date())))
   }
 
   override def updateAccount(account: Account): Future[Account] = {
@@ -32,11 +32,17 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
   })
 
   override def createTransaction(from: Option[Long], to: Option[Long], amount: Double): Future[Transaction] = {
-
     def loadIfPresent(idOpt: Option[Long]): Future[Option[Account]] = idOpt match {
         case Some(id) => loadAccount(id).map(a => Some(a))
         case None => Future.successful(None)
       }
+
+    if (from.isEmpty && to.isEmpty) {
+      throw AccountingException("A Transaction should have either 'from' or 'to' participant")
+    }
+    if (amount <= 0) {
+      throw AccountingException("A Transaction's amount should be positive")
+    }
 
     val transaction = for {
       fromOpt <- loadIfPresent(from)
@@ -58,11 +64,11 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
     account.copy(balance = account.balance + amount)
   }
 
-  override def loadByOwner(owner: String):Future[Seq[Account]] = accountingRepository.getAccountByOwner(owner)
+  override def loadByOwner(owner: String): Future[Seq[Account]] = accountingRepository.getAccountByOwner(owner)
 
   override def loadTransaction(id: Long): Future[Transaction] = accountingRepository.getTransaction(id).map({
     case Some(t) => t
-    case None => throw new AccountingException("No such transaction exists")
+    case None => throw AccountingException("No such transaction exists")
   })
 
   override def getTransactionsByAccountId(accountId: Long): Future[Seq[Transaction]] =
