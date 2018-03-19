@@ -12,4 +12,5 @@ import java.util.Date
 case class Account(id: Option[Long],
                    owner: String,
                    balance: Double,
+                   initialBalance: Double,
                    createdDate: Option[Date])

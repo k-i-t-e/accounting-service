@@ -1,10 +1,12 @@
 package controllers
 
+import java.util.Date
 import javax.inject.Inject
 
 import controllers.vo.{RestResult, TransactionVO}
 import entities.{Account, Transaction}
 import play.api.libs.json._
+import play.api.libs.functional.syntax._
 import play.api.mvc.{AbstractController, ControllerComponents}
 import services.accounting.AccountingService
 
@@ -20,8 +22,14 @@ import scala.concurrent.{ExecutionContext, Future}
   */
 class AccountingController @Inject()(cc: ControllerComponents,
                                      accountingService: AccountingService)(implicit ec: ExecutionContext) extends AbstractController(cc) {
+  private implicit val accountWrites: Writes[Account] = (
+    (JsPath \ "id").writeNullable[Long] and
+    (JsPath \ "owner").write[String] and
+    (JsPath \ "balance").write[Double] and
+    (JsPath \ "createdDate").writeNullable[Date]
+  )(account => (account.id, account.owner, account.balance, account.createdDate))
+
   private implicit val booleanResultWrites: Writes[RestResult[Boolean]] = Json.writes[RestResult[Boolean]]
-  private implicit val accountWrites: Writes[Account] = Json.writes[Account]
   private implicit val accountResultWrites: Writes[RestResult[Account]] = Json.writes[RestResult[Account]]
   private implicit val accountSeqResultWrites: Writes[RestResult[Seq[Account]]] = Json.writes[RestResult[Seq[Account]]]
   private implicit val transactionWrites: Writes[Transaction] = Json.writes[Transaction]
@@ -29,7 +37,11 @@ class AccountingController @Inject()(cc: ControllerComponents,
   private implicit val transactionSeqResultWrites: Writes[RestResult[Seq[Transaction]]] =
     Json.writes[RestResult[Seq[Transaction]]]
 
-  private implicit val accountReads: Reads[Account] = Json.reads[Account]
+  private implicit val accountReads: Reads[Account] = (
+    (JsPath \ "id").readNullable[Long] and
+    (JsPath \ "owner").read[String] and
+    (JsPath \ "balance").read[Double]
+  )((id, owner, balance) => Account(id, owner, balance, balance, None))
   private implicit val transactionVOReads: Reads[TransactionVO] = Json.reads[TransactionVO]
 
   /**

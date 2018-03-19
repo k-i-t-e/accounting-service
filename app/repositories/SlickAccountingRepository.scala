@@ -1,13 +1,15 @@
 package repositories
-import java.sql.Timestamp
+import java.sql.{SQLException, Timestamp}
 import java.util.Date
 import javax.inject.{Inject, Singleton}
 
 import entities.{Account, Transaction}
+import exceptions.AccountingException
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.H2Profile
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success}
 
 /**
   * An implementation of AccountingRepository, that uses Slick for database interaction.
@@ -30,8 +32,9 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     def owner = column[String]("owner")
     def balance = column[Double]("balance")
     def createdDate = column[Timestamp]("created_date")
+    def initialBalance = column[Double]("initial_balance")
 
-    override def * = (id.?, owner, balance, createdDate.?) <> ((applyFromDb _).tupled, unapplyAccountToDb)
+    override def * = (id.?, owner, balance, initialBalance, createdDate.?) <> ((applyFromDb _).tupled, unapplyAccountToDb)
   }
 
   private val accounts = TableQuery[AccountTable]
@@ -42,22 +45,18 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     * entities, which is impossible to get without joins or additional queries.
     * We also introduce a type alias for an operation table tuple
     */
-  type OperationRecord = (Option[Long], Option[Long], Option[Long], Double, Timestamp, Option[Double], Option[Double])
+  type OperationRecord = (Option[Long], Option[Long], Option[Long], Double, Timestamp)
   private class OperationTable(tag: Tag) extends Table[OperationRecord](tag, "operation") {
     def id = column[Long]("id", O.PrimaryKey, O.AutoInc)
     def fromId = column[Long]("from_id")
     def toId = column[Long]("to_id")
     def amount = column[Double]("amount")
     def createdDate = column[Timestamp]("created_date")
-    def fromBalance = column[Double]("from_balance")  // Contains balance of source account after transaction commit
-    def toBalance = column[Double]("to_balance")      // Contains balance of destination account after transaction
-                                                      // commit. These fields are used to restore history values of
-                                                      // account's balances
 
     def fromFk = foreignKey("from_id", fromId, accounts)(_.id)
     def toFk = foreignKey("to_id", toId, accounts)(_.id)
 
-    override def * = (id.?, fromId.?, toId.?, amount, createdDate, fromBalance.?, toBalance.?)
+    override def * = (id.?, fromId.?, toId.?, amount, createdDate)
   }
 
   private val operations = TableQuery[OperationTable]
@@ -65,7 +64,7 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
   override def createAccount(account: Account): Future[Account] = {
     val action = (for {
       newId <- accounts.returning(accounts.map(_.id)) += account
-    } yield Account(Some(newId), account.owner, account.balance, account.createdDate)).transactionally
+    } yield Account(Some(newId), account.owner, account.balance, account.initialBalance, account.createdDate)).transactionally
 
     db.run(action)
   }
@@ -87,11 +86,10 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
     db.run(accounts.filter(_.owner === owner).result)
 
   override def createTransaction(transaction: Transaction): Future[Transaction] = {
-    def accountUpdate(account: Account) = {
-      accounts
-        .filter(_.id === account.id)
-        .map(_.balance)
-        .update(account.balance)
+    def accountUpdate(accountId: Long, amount: Double) = {
+      sqlu"UPDATE account SET balance = balance + ${amount} WHERE id = ${accountId}" // the feature of "in-place" update
+                                                                                      // is not yet supported in Slick,
+                                                                                      // so we'll use a plain query
     }
 
     val params = (
@@ -99,13 +97,12 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
       transaction.from.flatMap(_.id),
       transaction.to.flatMap(_.id),
       transaction.amount,
-      new Timestamp(transaction.date.getTime),
-      transaction.from.map(_.balance),
-      transaction.to.map(_.balance)
+      new Timestamp(transaction.date.getTime)
     )
 
     // Define DB actions to update account balances, to be executed after create transaction query
-    val updateActions = Seq(transaction.from.map(accountUpdate), transaction.to.map(accountUpdate))
+    val updateActions = Seq(transaction.from.map(a => accountUpdate(a.id.get, -transaction.amount)),
+                            transaction.to.map(a => accountUpdate(a.id.get, transaction.amount)))
       .filter(_.isDefined)
       .map(_.get)
 
@@ -115,9 +112,25 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
         newId <- operations.returning(operations.map(_.id)) += params
         _ <- DBIO.seq(updateActions:_*)
       } yield transaction.copy(id = Some(newId))
-    }.transactionally
+    }.transactionally.asTry
 
-    db.run(action)
+    // since we've moved the business logic of checking that account balance is positive to the database,
+    // we need to catch the possible SQLException from the database and translate it to our business exception
+    db.run(action).map {
+      case Success(t) => t
+      case Failure(e) => e match {
+        case sqlException: SQLException => mapException(sqlException)
+        case default => throw default;
+      }
+    }
+  }
+
+  private def mapException(exception: SQLException) = {
+    if (exception.getMessage.contains("balance_positive")) {
+      throw AccountingException("Account balance is not enough")
+    } else {
+      throw exception
+    }
   }
 
   override def getTransaction(transactionId: Long): Future[Option[Transaction]] = {
@@ -129,19 +142,12 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
 
     db.run(actions).map(r => {
       r._1.map(p => {
-        val (id, _, _, amount, date, fromBalance, toBalance) = p
+        val (id, _, _, amount, date) = p
         val from = r._2._1
         val to = r._2._2
-        Transaction(id, from.map(restoreBalanceHistory(_, fromBalance)), to.map(restoreBalanceHistory(_, toBalance)), amount, date)
+        Transaction(id, from, to, amount, date)
       })
     })
-  }
-
-  private def restoreBalanceHistory(account: Account, historyBalance: Option[Double]) = {
-    historyBalance match {
-      case Some(b) => account.copy(balance = b)
-      case None => account
-    }
   }
 
   override def getTransactionsByAccountId(accountId: Long): Future[Seq[Transaction]] = {
@@ -150,13 +156,10 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
         .filter(op => op.fromId === accountId || op.toId === accountId)
         .joinLeft(accounts).on(_.fromId === _.id)
         .joinLeft(accounts).on(_._1.toId === _.id)
-
     } yield (
       operation.id,
       operation.amount,
       operation.createdDate,
-      operation.fromBalance.?,
-      operation.toBalance.?,
 
       from,
       to
@@ -164,12 +167,8 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
 
     db.run(joinAction.result).map(
       _.map(r => {
-        val (id, amount, date, fromBalance, toBalance, from, to) = r
-        Transaction(Some(id),
-                    from.map(restoreBalanceHistory(_, fromBalance)),
-                    to.map(restoreBalanceHistory(_, toBalance)),
-                    amount,
-                    date)
+        val (id, amount, date, from, to) = r
+        Transaction(Some(id), from, to, amount, date)
       })
     )
   }
@@ -177,8 +176,8 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
   /**
     * A helper method to convert an Account entity to a database table tuple
     */
-  private def unapplyAccountToDb(arg: Account): Option[(Option[Long], String, Double, Option[Timestamp])] =
-    Some((arg.id, arg.owner, arg.balance, arg.createdDate match {
+  private def unapplyAccountToDb(arg: Account): Option[(Option[Long], String, Double, Double, Option[Timestamp])] =
+    Some((arg.id, arg.owner, arg.balance, arg.initialBalance, arg.createdDate match {
       case Some(date) => Some(new Timestamp(date.getTime))
       case None => None
     }))
@@ -186,11 +185,10 @@ class SlickAccountingRepository @Inject()(protected val dbConfigProvider: Databa
   /**
     * A helper method to construct an Account from values from database
     */
-  def applyFromDb(id: Option[Long],
-                  owner: String,
-                  balance: Double,
-                  createdDate: Option[Timestamp]): Account = new Account(id, owner, balance, createdDate match {
-    case Some(timestamp) => Some(new Date(timestamp.getTime))
-    case None => None
-  })
+  def applyFromDb(id: Option[Long], owner: String, balance: Double, initialBalance: Double,
+                  createdDate: Option[Timestamp]): Account =
+    Account(id, owner, balance, initialBalance, createdDate match {
+      case Some(timestamp) => Some(new Date(timestamp.getTime))
+      case None => None
+    })
 }

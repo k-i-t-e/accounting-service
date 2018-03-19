@@ -3,6 +3,7 @@ package repositories
 import entities.{Account, Transaction}
 
 import scala.concurrent.Future
+import scala.util.Try
 
 /**
   * A trait, that represents a repository for managing accounting data: Account and Transaction entities.

@@ -10,9 +10,9 @@ import org.specs2.mutable._
 import org.specs2.runner.JUnitRunner
 import repositories.AccountingRepository
 
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Random
 
 @RunWith(classOf[JUnitRunner])
@@ -20,8 +20,8 @@ class DefaultAccountServiceSpec extends Specification with Mockito {
   private val TEST_NON_EXISTING_TRANSACTION_ID = 999
   private val TEST_NON_EXISTING_ACCOUNT_ID = 999
 
-  private val testAccount1 = Account(Some(1), "testOwner", 100.0, Some(new Date()))
-  private val testAccount2 = Account(Some(2), "testOwner", 100.0, Some(new Date()))
+  private val testAccount1 = Account(Some(1), "testOwner", 100.0, 100.0, Some(new Date()))
+  private val testAccount2 = Account(Some(2), "testOwner", 100.0, 100.0, Some(new Date()))
 
   private val repositoryMock = mock[AccountingRepository]
   repositoryMock.getAccountById(testAccount1.id.get) returns Future.successful(Some(testAccount1))
@@ -31,8 +31,10 @@ class DefaultAccountServiceSpec extends Specification with Mockito {
   repositoryMock.updateAccount(any[Account]) answers (a => Future.successful(a.asInstanceOf[Account]))
   repositoryMock.createTransaction(any[Transaction]) answers(t => {
     val transaction = t.asInstanceOf[Transaction]
+    val from = transaction.from.map(a => a.copy(balance = a.balance - transaction.amount))
+    val to = transaction.to.map(a => a.copy(balance = a.balance + transaction.amount))
     Future.successful(
-      transaction.copy(id = Some(new Random().nextLong()))
+      transaction.copy(id = Some(new Random().nextLong()), from = from, to = to)
     )
   })
   repositoryMock.createAccount(any[Account]) answers (
@@ -61,26 +63,22 @@ class DefaultAccountServiceSpec extends Specification with Mockito {
       transaction.from.get.balance mustEqual (testAccount1.balance - amount)
     }
     "Set created date on Account creation" in {
-      val created = Await.result(accountingService.createAccount(Account(None, "testOwner", 100.0, None)), Duration.Inf)
+      val created = Await.result(
+        accountingService.createAccount(Account(None, "testOwner", 100.0, 100.0, None)), Duration.Inf
+      )
       created.id must beSome[Long]
       created.createdDate must beSome[Date]
     }
     "Don't allow" in {
-      "Transaction, that exceeds the balance" in {
-        val amount = testAccount1.balance + 10
-
-        Await.result(
-          accountingService.createTransaction(testAccount1.id, testAccount2.id, amount), Duration.Inf
-        ) must throwA[AccountingException]
-      }
       "Account update without an ID" in {
         Await.result(
-          accountingService.updateAccount(Account(None, "testOwner", 100.0, None)), Duration.Inf
+          accountingService.updateAccount(Account(None, "testOwner", 100.0, 100.0, None)), Duration.Inf
         ) must throwA[AccountingException]
       }
       "Update of a non existing Account" in {
         Await.result(
-          accountingService.updateAccount(Account(Some(TEST_NON_EXISTING_ACCOUNT_ID), "testOwner", 100.0, None)), Duration.Inf
+          accountingService.updateAccount(Account(Some(TEST_NON_EXISTING_ACCOUNT_ID), "testOwner", 100.0, 100.0, None)),
+          Duration.Inf
         ) must throwA[AccountingException]
       }
       "Transaction with no participant accounts" in {

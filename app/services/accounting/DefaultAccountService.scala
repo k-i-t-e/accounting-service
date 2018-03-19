@@ -48,20 +48,12 @@ class DefaultAccountService @Inject()(accountingRepository: AccountingRepository
       fromOpt <- loadIfPresent(from)
       toOpt <- loadIfPresent(to)
     } yield Transaction(None,
-      fromOpt.map(from => processTransaction(from, -amount)),
-      toOpt.map(to => processTransaction(to, amount)),
+      fromOpt,
+      toOpt,
       amount,
       new Date())
 
     transaction.flatMap(accountingRepository.createTransaction)
-  }
-
-  private def processTransaction(account: Account, amount: Double): Account = {
-    if (amount < 0 && account.balance < -amount) {
-      throw AccountingException("Account balance is not enough")
-    }
-
-    account.copy(balance = account.balance + amount)
   }
 
   override def loadByOwner(owner: String): Future[Seq[Account]] = accountingRepository.getAccountByOwner(owner)

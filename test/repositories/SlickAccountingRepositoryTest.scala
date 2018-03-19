@@ -3,6 +3,7 @@ package repositories
 import java.util.Date
 
 import entities.{Account, Transaction}
+import exceptions.AccountingException
 import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.test.{PlaySpecification, WithApplication}
 
@@ -17,7 +18,7 @@ class SlickAccountingRepositoryTest extends PlaySpecification {
         val repository = app.injector.instanceOf[SlickAccountingRepository]
         repository must beAnInstanceOf[AccountingRepository]
 
-        val account = Account(None, "testOwner", 100.0, Some(new Date()))
+        val account = Account(None, "testOwner", 100.0, 100.0, Some(new Date()))
         val created = Await.result(repository.createAccount(account), Duration.Inf)
 
         created.id must beSome[Long]
@@ -33,6 +34,7 @@ class SlickAccountingRepositoryTest extends PlaySpecification {
         loadedAccount.owner must beEqualTo(account.owner)
         loadedAccount.balance must beEqualTo(account.balance)
         loadedAccount.createdDate must beEqualTo(account.createdDate)
+        loadedAccount.initialBalance must beEqualTo(account.initialBalance)
 
         val loadedAccounts = getFutureResult(repository.getAccountByOwner(account.owner))
         loadedAccounts must not be empty
@@ -44,7 +46,7 @@ class SlickAccountingRepositoryTest extends PlaySpecification {
       "Updated" in new WithApplication(appWithMemoryDatabase) {
         val repository = app.injector.instanceOf[SlickAccountingRepository]
 
-        val account = Account(None, "testOwner", 100.0, Some(new Date()))
+        val account = Account(None, "testOwner", 100.0, 100.0, Some(new Date()))
         val created = Await.result(repository.createAccount(account), Duration.Inf)
         val updated = created.copy(balance = 110.0, owner = "newTestOwner", createdDate = Some(new Date()))
 
@@ -67,8 +69,8 @@ class SlickAccountingRepositoryTest extends PlaySpecification {
     "Transaction" in {
       "Created and Loaded" in new WithApplication(appWithMemoryDatabase) {
         val repository = app.injector.instanceOf[SlickAccountingRepository]
-        val from = getFutureResult(repository.createAccount(Account(None, "testOwner", 100.0, Some(new Date()))))
-        val to = getFutureResult(repository.createAccount(Account(None, "testOwner", 100.0, Some(new Date()))))
+        val from = getFutureResult(repository.createAccount(Account(None, "testOwner", 100.0, 100.0, Some(new Date()))))
+        val to = getFutureResult(repository.createAccount(Account(None, "testOwner", 100.0, 100.0, Some(new Date()))))
 
         val transaction = Transaction(
           None,
@@ -94,7 +96,9 @@ class SlickAccountingRepositoryTest extends PlaySpecification {
         val loadedTo = getFutureResult(repository.getAccountById(to.id.get))
 
         loadedFrom.get.balance must beEqualTo(from.balance - transaction.amount)
+        loadedFrom.get.initialBalance must beEqualTo(from.balance)
         loadedTo.get.balance must beEqualTo(to.balance + transaction.amount)
+        loadedTo.get.initialBalance must beEqualTo(to.balance)
 
         // Test load by account
         val fromTransactionSeq = getFutureResult(repository.getTransactionsByAccountId(from.id.get))
@@ -105,7 +109,7 @@ class SlickAccountingRepositoryTest extends PlaySpecification {
       }
       "Created with one account" in new WithApplication(appWithMemoryDatabase) {
         val repository = app.injector.instanceOf[SlickAccountingRepository]
-        val to = getFutureResult(repository.createAccount(Account(None, "testOwner", 100.0, Some(new Date()))))
+        val to = getFutureResult(repository.createAccount(Account(None, "testOwner", 100.0, 100.0, Some(new Date()))))
 
         val transaction = Transaction(
           None,
@@ -121,6 +125,25 @@ class SlickAccountingRepositoryTest extends PlaySpecification {
 
         val loadedTo = getFutureResult(repository.getAccountById(to.id.get))
         loadedTo.get.balance must beEqualTo(to.balance + transaction.amount)
+      }
+    }
+    "Doesn't allow" in {
+      "Transaction" in {
+        "Transaction, that exceeds the balance" in new WithApplication(appWithMemoryDatabase) {
+          val repository = app.injector.instanceOf[SlickAccountingRepository]
+          val from = getFutureResult(repository.createAccount(Account(None, "testOwner", 100.0, 100.0, Some(new Date()))))
+          val to = getFutureResult(repository.createAccount(Account(None, "testOwner", 100.0, 100.0, Some(new Date()))))
+
+          val transaction = Transaction(
+            None,
+            Some(from), // These operations has to be done in the service layer
+            Some(to),
+            110.0,
+            new Date())
+          Await.result(
+            repository.createTransaction(transaction), Duration.Inf
+          ) must throwA[AccountingException]
+        }
       }
     }
   }
